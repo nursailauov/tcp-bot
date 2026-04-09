@@ -2373,17 +2373,58 @@ async def MajorLogin(payload):
                 return await response.read()
             return None
 
-async def GetLoginData(base_url, payload, token):
-    url = f"{base_url}/GetLoginData"
+async def GetLoginData(base_url, payload, token, region=None):
+    clean_base = (base_url or "").strip().rstrip("/")
+    raw_region = (region or "").strip().lower()
+
+    region_aliases = {
+        "cis": ["cis", "ru"],
+        "ru": ["ru", "cis"],
+        "ind": ["ind", "in"],
+        "in": ["in", "ind"]
+    }
+    region_codes = region_aliases.get(raw_region, [raw_region] if raw_region else [])
+
+    candidate_urls = []
+    if clean_base:
+        candidate_urls.append(f"{clean_base}/GetLoginData")
+    for region_code in region_codes:
+        candidate_urls.append(f"https://client.{region_code}.ggbluefox.com/GetLoginData")
+        candidate_urls.append(f"https://clientbp.{region_code}.ggbluefox.com/GetLoginData")
+        candidate_urls.append(f"https://client.{region_code}.ggblueshark.com/GetLoginData")
+        candidate_urls.append(f"https://clientbp.{region_code}.ggblueshark.com/GetLoginData")
+    candidate_urls.append("https://clientbp.common.ggbluefox.com/GetLoginData")
+    candidate_urls.append("https://clientbp.ggblueshark.com/GetLoginData")
+
+    # Keep order, remove duplicates
+    candidate_urls = list(dict.fromkeys(candidate_urls))
+
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
-    Hr['Authorization'] = f"Bearer {token}"
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, data=payload, headers=Hr, ssl=ssl_context) as response:
-            if response.status == 200:
-                return await response.read()
-            return None
+
+    headers = Hr.copy()
+    headers['Authorization'] = f"Bearer {token}"
+
+    payload_variants = [payload, b""] if payload else [b""]
+
+    timeout = aiohttp.ClientTimeout(total=12)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        for url in candidate_urls:
+            for body in payload_variants:
+                try:
+                    async with session.post(url, data=body, headers=headers, ssl=ssl_context) as response:
+                        if response.status == 200:
+                            response_data = await response.read()
+                            if response_data:
+                                return response_data
+                        else:
+                            error_preview = (await response.text())[:120]
+                            print(f"⚠️ GetLoginData failed ({response.status}) via {url}: {error_preview}")
+                except Exception as e:
+                    print(f"⚠️ GetLoginData request error via {url}: {e}")
+
+    return None
 
 async def DecRypTMajoRLoGin(MajoRLoGinResPonsE):
     proto = MajoRLoGinrEs_pb2.MajorLoginRes()
@@ -4404,7 +4445,7 @@ async def MaiiiinE():
     print(f"🌍 Region: {region}")
     print(f"🔑 Token: {ToKen[:30]}...")
 
-    LoGinDaTa = await GetLoginData(UrL, PyL, ToKen)
+    LoGinDaTa = await GetLoginData(UrL, PyL, ToKen, region)
     if not LoGinDaTa:
         print("❌ Error - Getting Ports From Login Data!")
         return None
